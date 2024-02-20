@@ -1,0 +1,139 @@
+SELECT
+A.*,
+B.name as audience_name,
+QA.CSM
+FROM
+(
+SELECT
+dbm_io_status,
+dbm_io_id,
+io_end_date,
+li_id,
+RD_NRD,
+AM_Name as CSM,
+FROM
+table_LI
+WHERE
+dbm_io_status = "Active"
+AND RD_NRD = "Non RevDirect"
+AND (line_item_end_date >= CURRENT_DATE()
+AND line_item_start_date <= CURRENT_DATE()
+AND io_end_date >= CURRENT_DATE())) QA
+JOIN
+(
+SELECT
+line_item_id,
+io_id,
+io_name,
+line_item_name,
+line_item_status,
+line_item_start_date,
+line_item_end_date,
+integration_code,
+audience_targeting_include,
+audience_targeting_exclude,
+##Case statement that pulls out the line item recency and based on that it pulls out what recencies need to be excluded
+CASE
+##nothing to exclude
+WHEN LOWER(line_item_name) LIKE "%24h%" OR LOWER(line_item_name) LIKE "%24 h%" OR LOWER(line_item_name) LIKE "%all users%" THEN "nothing to exclude"
+##1 day to exclude
+WHEN LOWER(line_item_name) LIKE "%2-%" THEN "1d to exclude"
+##7 days to exclude
+WHEN LOWER(line_item_name) LIKE "%8-%" OR LOWER(line_item_name) LIKE "%8+d%" THEN "7d to exclude"
+##14 days to exclude
+WHEN LOWER(line_item_name) LIKE "%15-%" OR LOWER(line_item_name) LIKE "%15+%" THEN "14d to exclude"
+##15 days to exclude
+WHEN LOWER(line_item_name) LIKE "%16-%" OR LOWER(line_item_name) LIKE "%16+%" THEN "15d to exclude"
+##30 days to exclude
+WHEN LOWER(line_item_name) LIKE "%31+d%" OR LOWER(line_item_name) LIKE "%31d+%" OR LOWER(line_item_name) LIKE "%30+d%" THEN "30d to exclude"
+##45 days to exclude
+WHEN LOWER(line_item_name) LIKE "%46+d%" THEN "45d to exclude"
+##60 days to exclude
+WHEN LOWER(line_item_name) LIKE "%61+%" THEN "60d to exclude"
+END
+AS line_item_recency_naming,
+##Pulling out just the ids from audience_split
+TRIM(REGEXP_EXTRACT(audience_split, r'(\d+);')) AS audience_id,
+##Case when statement that pulls out the recency & if not recency then null (=all users)
+CASE
+WHEN REGEXP_CONTAINS(audience_split, r'; ([a-zA-Z\d]+)') THEN REGEXP_EXTRACT(audience_split, r'; ([a-zA-Z\d]+)')
+ELSE
+NULL
+END
+AS audience_recency
+FROM (
+SELECT
+line_item_id,
+io_id,
+io_name,
+line_item_name,
+line_item_status,
+line_item_start_date,
+line_item_end_date,
+integration_code,
+audience_targeting_include,
+audience_targeting_exclude,
+##splitting the audience_split field on ')('
+SPLIT(audience_split, ')(') AS audience_split
+FROM (
+SELECT
+line_item_id,
+io_id,
+io_name,
+line_item_name,
+line_item_status,
+line_item_start_date,
+line_item_end_date,
+integration_code,
+audience_targeting_include,
+audience_targeting_exclude,
+##replacing different part of the audience_targeting_include string to that we can easily split the data & trimming to make sure no leading/trailing spaces
+TRIM(REPLACE(REPLACE(REPLACE(audience_targeting_exclude, '); (', ')('),'((', '('), ';););', ';)')) AS audience_split
+FROM
+table_SDF
+WHERE
+line_item_status="Active"))
+LEFT JOIN
+UNNEST(audience_split) AS audience_split)A
+ON QA.li_id=A.line_item_id
+LEFT JOIN (
+SELECT
+*
+FROM
+table_google_dataset ) B
+ON
+A.audience_id = CAST(B.id AS string)
+WHERE
+CASE
+WHEN (line_item_recency_naming="nothing to exclude" AND audience_recency IS NOT NULL AND LOWER(line_item_name) NOT LIKE "%qualified%" AND LOWER(name) NOT LIKE "%eng-bucket%") THEN "Issue"
+WHEN (line_item_recency_naming="1d to exclude" AND (audience_recency<>"1d" OR audience_recency IS NULL) AND LOWER(line_item_name) NOT LIKE "%qualified%" AND LOWER(name) NOT LIKE "%member%" AND LOWER(name) NOT LIKE "%suppression%" AND LOWER(name) NOT LIKE "%employees%" AND LOWER(name) NOT LIKE "%eng-bucket%") THEN "Issue"
+
+WHEN (line_item_recency_naming="7d to exclude" AND (audience_recency<>"7d" OR audience_recency IS NULL) AND LOWER(line_item_name) NOT LIKE "%qualified%" AND LOWER(name) NOT LIKE "%member%" AND LOWER(name) NOT LIKE "%suppression%" AND LOWER(name) NOT LIKE "%employees%" AND LOWER(name) NOT LIKE "%eng-bucket%") THEN "Issue"
+
+WHEN (line_item_recency_naming="14d to exclude" AND (audience_recency<>"14d" OR audience_recency IS NULL) AND LOWER(line_item_name) NOT LIKE "%qualified%" AND LOWER(name) NOT LIKE "%member%" AND LOWER(name) NOT LIKE "%suppression%" AND LOWER(name) NOT LIKE "%employees%" AND LOWER(name) NOT LIKE "%eng-bucket%") THEN "Issue"
+
+WHEN (line_item_recency_naming="15d to exclude" AND (audience_recency<>"15d" OR audience_recency IS NULL) AND LOWER(line_item_name) NOT LIKE "%qualified%" AND LOWER(name) NOT LIKE "%member%" AND LOWER(name) NOT LIKE "%suppression%" AND LOWER(name) NOT LIKE "%employees%" AND LOWER(name) NOT LIKE "%eng-bucket%") THEN "Issue"
+
+WHEN (line_item_recency_naming="30d to exclude" AND (audience_recency<>"30d" OR audience_recency IS NULL) AND LOWER(line_item_name) NOT LIKE "%qualified%" AND LOWER(name) NOT LIKE "%member%" AND LOWER(name) NOT LIKE "%suppression%" AND LOWER(name) NOT LIKE "%employees%" AND LOWER(name) NOT LIKE "%eng-bucket%") THEN "Issue"
+
+WHEN (line_item_recency_naming="45d to exclude" AND (audience_recency<>"45d" OR audience_recency IS NULL) AND LOWER(line_item_name) NOT LIKE "%qualified%" AND LOWER(name) NOT LIKE "%member%" AND LOWER(name) NOT LIKE "%suppression%" AND LOWER(name) NOT LIKE "%employees%" AND LOWER(name) NOT LIKE "%eng-bucket%") THEN "Issue"
+
+WHEN (line_item_recency_naming="60d to exclude" AND (audience_recency<>"60d" OR audience_recency IS NULL) AND LOWER(line_item_name) NOT LIKE "%qualified%" AND LOWER(name) NOT LIKE "%member%" AND LOWER(name) NOT LIKE "%suppression%" AND LOWER(name) NOT LIKE "%employees%" AND LOWER(name) NOT LIKE "%eng-bucket%"
+) THEN "Issue"
+
+##scenarios for qualified lines
+WHEN (line_item_recency_naming="nothing to exclude" AND audience_recency IS NOT NULL AND LOWER(line_item_name) LIKE "%qualified%" AND LOWER(name) NOT LIKE "sj-p%" AND LOWER(name) NOT LIKE "%choice creative pixel%" AND LOWER(name) NOT LIKE "%eng-bucket%" AND (LOWER(name) LIKE "%suppression%" AND audience_recency IS NOT NULL)) THEN "Issue"
+WHEN (line_item_recency_naming="1d to exclude" AND (audience_recency<>"1d" OR audience_recency IS NULL) AND LOWER(line_item_name) LIKE "%qualified%" AND LOWER(name) NOT LIKE "sj-p%" AND LOWER(name) NOT LIKE "%choice creative pixel%" AND (LOWER(name) LIKE "%suppression%" AND LOWER(name) NOT LIKE "%eng-bucket%" AND audience_recency IS NOT NULL)) THEN "Issue"
+
+WHEN (line_item_recency_naming="7d to exclude" AND (audience_recency<>"7d" OR audience_recency IS NULL) AND LOWER(line_item_name) LIKE "%qualified%" AND LOWER(name) NOT LIKE "sj-p%" AND LOWER(name) NOT LIKE "%choice creative pixel%" AND (LOWER(name) LIKE "%suppression%" AND LOWER(name) NOT LIKE "%eng-bucket%" AND audience_recency IS NOT NULL)) THEN "Issue"
+
+WHEN (line_item_recency_naming="14d to exclude" AND (audience_recency<>"14d" OR audience_recency IS NULL) AND LOWER(line_item_name) LIKE "%qualified%" AND LOWER(name) NOT LIKE "sj-p%" AND LOWER(name) NOT LIKE "%choice creative pixel%" AND LOWER(name) NOT LIKE "%eng-bucket%" AND (LOWER(name) LIKE "%suppression%" AND audience_recency IS NOT NULL)) THEN "Issue"
+
+WHEN (line_item_recency_naming="15d to exclude" AND audience_recency<>"15d" AND LOWER(line_item_name) LIKE "%qualified%" AND LOWER(name) NOT LIKE "sj-p%" AND LOWER(name) NOT LIKE "%choice creative pixel%" AND (LOWER(name) LIKE "%suppression%" AND LOWER(name) NOT LIKE "%eng-bucket%" AND audience_recency IS NOT NULL)) THEN "Issue"
+
+WHEN (line_item_recency_naming="30d to exclude" AND (audience_recency<>"30d" OR audience_recency IS NULL) AND LOWER(line_item_name) LIKE "%qualified%" AND LOWER(name) NOT LIKE "sj-p%" AND LOWER(name) NOT LIKE "%choice creative pixel%" AND (LOWER(name) LIKE "%suppression%" AND LOWER(name) NOT LIKE "%eng-bucket%" AND audience_recency IS NOT NULL)) THEN "Issue"
+
+WHEN (line_item_recency_naming="45d to exclude" AND (audience_recency<>"45d" OR audience_recency IS NULL) AND LOWER(line_item_name) LIKE "%qualified%" AND LOWER(name) NOT LIKE "sj-p%" AND LOWER(name) NOT LIKE "%choice creative pixel%" AND (LOWER(name) LIKE "%suppression%" AND LOWER(name) NOT LIKE "%eng-bucket%" AND audience_recency IS NOT NULL)) THEN "Issue"
+
+WHEN (line_item_recency_naming="60d to exclude" AND (audience_recency<>"60d" OR audience_recency IS NULL) AND LOWER(line_item_name) LIKE "%qualified%" AND LOWER(name) NOT LIKE "sj-p%" AND LOWER(name) NOT LIKE "%choice creative pixel%" AND (LOWER(name) LIKE "%suppression%" AND LOWER(name) NOT LIKE "%eng-bucket%" AND audience_recency IS NOT NULL)) THEN "Issue"
+END = "Issue"
