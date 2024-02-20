@@ -1,1 +1,4 @@
-
+This is an automation I created for setting up youtube campaigns more effienctly. 
+I used Google Sheets, so it could be accessed by the global team and add the campaign info they were responisble for in the first Input tab.
+Each tab serves as a connection to BigQuery to extract data from Salesforce or as an SDF that can be directly uploaded to DV360. 
+Within the cells, numerous formulas are employed to combine and automate all the data.
